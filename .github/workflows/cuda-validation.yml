@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   gpu:
-    runs-on: [self-hosted, Windows, X64, kvpress-gpu-8b1b4b6d66]
+    runs-on: [self-hosted, Windows, X64, kvpress-gpu-57aef7435c]
     timeout-minutes: 20
     defaults:
       run:
