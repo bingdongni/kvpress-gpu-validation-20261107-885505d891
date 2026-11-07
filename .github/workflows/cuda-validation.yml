@@ -1,0 +1,55 @@
+name: ChunkPress singleton CUDA regression
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gpu:
+    runs-on: [self-hosted, Windows, X64, kvpress-gpu-885505d891]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    env:
+      MASK_MACHINE: ${{ secrets.MASK_MACHINE }}
+      MASK_USER: ${{ secrets.MASK_USER }}
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check out upstream and apply the reviewed patch
+        run: |
+          $patch = Join-Path $env:GITHUB_WORKSPACE 'kvpress-singleton-tail.patch'
+          $hash = (Get-FileHash -LiteralPath $patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '2f12e7dd3dc401bbd20ce7d5c8164245922b456afa0a44cd187e35ebc7774db1') { throw 'Unexpected patch' }
+          $dir = Join-Path $env:RUNNER_TEMP 'kvpress-source'
+          git -c init.templateDir= init --quiet $dir
+          if ($LASTEXITCODE -ne 0) { throw 'git init failed' }
+          git -C $dir -c credential.helper= fetch --quiet --depth=1 https://github.com/NVIDIA/kvpress.git 94951a5b90a2594efbb674c69a9fb9cd28f300c0
+          if ($LASTEXITCODE -ne 0) { throw 'git fetch failed' }
+          git -C $dir checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'git checkout failed' }
+          if ((git -C $dir rev-parse HEAD).Trim() -ne '94951a5b90a2594efbb674c69a9fb9cd28f300c0') { throw 'Unexpected base' }
+          git -C $dir apply --check $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Patch check failed' }
+          git -C $dir apply $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Patch application failed' }
+          Write-Host "Upstream HEAD 94951a5b90a2594efbb674c69a9fb9cd28f300c0; patch SHA256 $hash"
+      - name: Run CPU and CUDA regression tests
+        run: |
+          nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+          if ($LASTEXITCODE -ne 0) { throw 'nvidia-smi failed' }
+          $dir = Join-Path $env:RUNNER_TEMP 'kvpress-source'
+          $env:PYTHONPATH = $dir
+          Set-Location $dir
+          & 'C:\PR\kvpress-gpu-venv-20261107\Scripts\python.exe' -c "import pathlib, torch, transformers, kvpress; assert torch.cuda.is_available(); assert pathlib.Path(kvpress.__file__).resolve().is_relative_to(pathlib.Path.cwd()); print('GPU:', torch.cuda.get_device_name(0), 'PyTorch:', torch.__version__, 'CUDA:', torch.version.cuda, 'transformers:', transformers.__version__)"
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA or source check failed' }
+          & 'C:\PR\kvpress-gpu-venv-20261107\Scripts\python.exe' -m pytest tests/presses/test_chunk_singleton.py -q --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'ChunkPress regression failed' }
