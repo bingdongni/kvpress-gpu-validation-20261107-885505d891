@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   gpu:
-    runs-on: [self-hosted, Windows, X64, kvpress-gpu-885505d891]
+    runs-on: [self-hosted, Windows, X64, kvpress-gpu-8b1b4b6d66]
     timeout-minutes: 20
     defaults:
       run:
@@ -27,7 +27,8 @@ jobs:
       - name: Check out upstream and apply the reviewed patch
         run: |
           $patch = Join-Path $env:GITHUB_WORKSPACE 'kvpress-singleton-tail.patch'
-          $hash = (Get-FileHash -LiteralPath $patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hash = & 'C:\PR\kvpress-gpu-venv-20261107\Scripts\python.exe' -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Patch hashing failed' }
           if ($hash -ne '2f12e7dd3dc401bbd20ce7d5c8164245922b456afa0a44cd187e35ebc7774db1') { throw 'Unexpected patch' }
           $dir = Join-Path $env:RUNNER_TEMP 'kvpress-source'
           git -c init.templateDir= init --quiet $dir
